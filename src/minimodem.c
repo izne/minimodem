@@ -21,7 +21,6 @@
 
 
 #include <getopt.h>
-#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,8 +29,24 @@
 #include <float.h>
 #include <assert.h>
 #include <signal.h>
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#else
+#define VERSION "unknown"
+#endif
+
+#ifndef _WIN32
+#include <unistd.h>
 #include <sys/time.h>
 #include <sys/select.h>
+#else
+#include <windows.h>
+#include <mmsystem.h>
+
+#define read(fd, buf, n) _read(fd, buf, n)
+#define write(fd, buf, n) _write(fd, buf, n)
+#endif
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -140,6 +155,7 @@ static void fsk_transmit_stdin(
 	tx_flush_nsamples = 0;
 
     // one-shot
+#ifndef _WIN32
     struct itimerval itv = {
 	{0, 0},						// it_interval
 	{0, 1000000/(float)(data_rate+data_rate*0.03f)}	// it_value
@@ -149,15 +165,19 @@ static void fsk_transmit_stdin(
 	{0, 0},						// it_interval
 	{0, 0}						// it_value
     };
+#endif
 
     // arbitrary chosen timeout value: 1/25 of a second
     unsigned int idle_carrier_usec = (1000000/25);
 
     int block_input = tx_interactive && !txcarrier;
+#ifndef _WIN32
     if ( block_input )
 	signal(SIGALRM, tx_stop_transmit_sighandler);
+#endif
 
     // Set up for select() should we need it
+#ifndef _WIN32
     int fd = fileno(stdin);
     fd_set fdset;
 
@@ -173,32 +193,29 @@ static void fsk_transmit_stdin(
         struct timeval tv_idletimeout = { 0, 0 };
 
 	if ( !tx_interactive ) {
-	    // When stdin blocks we "emit idle tone", for a duration of
-	    // idle_carrier_usec.  If !tx_interactive (i.e. writing to an
-	    // audio file) make the select timeout the same duration.
 	    tv_idletimeout.tv_usec = idle_carrier_usec;
 	}
 
         if( block_input || select(fd+1, &fdset, NULL, NULL, &tv_idletimeout) )
         {
 	    n_read = read(fd, &buf, sizeof(buf));
-	    if( n_read <= 0 ) //Includes EOF (0) and errors (-1)
+	    if( n_read <= 0 )
 	    {
 		end_of_file = 1;
-		continue;     //Do nothing else
+		continue;
 	    }
             idle = 0;
         }
 	else
 	    idle = 1;
 
-	// Cause any running timer to immediately trigger
+#ifndef _WIN32
 	if ( block_input )
 	    setitimer(ITIMER_REAL, &itv_zero, NULL);
+#endif
 
 	if( !idle )
 	{
-	    // fprintf(stderr, "<c=%d>", c);
 	    unsigned int nwords;
 	    unsigned int bits[2];
 	    unsigned int j;
@@ -207,21 +224,18 @@ static void fsk_transmit_stdin(
 	    if ( !tx_transmitting )
 	    {
 	        tx_transmitting = 1;
-                /* emit leader tone (mark) */
                 for ( j=0; j<tx_leader_bits_len; j++ )
                     simpleaudio_tone(sa_out, invert_start_stop ? bfsk_space_f : bfsk_mark_f, bit_nsamples);
 	    }
 	    if ( tx_transmitting < 2)
 	    {
 		tx_transmitting = 2;
-		/* emit "preamble" of sync bytes */
 		for ( j=0; j<bfsk_do_tx_sync_bytes; j++ )
 		    fsk_transmit_frame(sa_out, bfsk_sync_byte, n_data_bits,
 			    bit_nsamples, bfsk_mark_f, bfsk_space_f,
 			    bfsk_nstartbits, bfsk_nstopbits, invert_start_stop, 0);
 	    }
 
-	    /* emit data bits */
 	    for ( j=0; j<nwords; j++ )
 		fsk_transmit_frame(sa_out, bits[j], n_data_bits,
 			    bit_nsamples, bfsk_mark_f, bfsk_space_f,
@@ -230,25 +244,109 @@ static void fsk_transmit_stdin(
         else
         {
 	    tx_transmitting = 1;
-            /* emit idle tone (mark) */
-	    simpleaudio_tone(sa_out,
+            simpleaudio_tone(sa_out,
 		    invert_start_stop ? bfsk_space_f : bfsk_mark_f,
 		    idle_carrier_usec * sample_rate / 1000000);
 	}
 
 	if ( block_input )
+	{
+#ifndef _WIN32
 	    setitimer(ITIMER_REAL, &itv, NULL);
+#endif
+	}
+#ifndef _WIN32
+        if ( block_input ) {
+	    setitimer(ITIMER_REAL, &itv_zero, NULL);
+	    signal(SIGALRM, SIG_DFL);
+        }
+#endif
+        if ( !tx_transmitting )
+	    return;
+
+        tx_stop_transmit_sighandler(0);
     }
-    if ( block_input ) {
-	setitimer(ITIMER_REAL, &itv_zero, NULL);
-	signal(SIGALRM, SIG_DFL);
+#endif
+
+    tx_stop_transmit_sighandler(0);
+}
+
+#ifdef _WIN32
+static void
+fsk_transmit_stdin_windows(
+	simpleaudio *sa_out,
+	int tx_interactive,
+	float data_rate,
+	float bfsk_mark_f, float bfsk_space_f,
+	int n_data_bits,
+	int n_startbits,
+	float n_stopbits,
+	int invert_start_stop,
+	int bfsk_msb_first,
+	int bfsk_do_tx_sync_bytes,
+	unsigned int bfsk_sync_byte,
+	databits_encoder encode,
+	int txcarrier
+	)
+{
+    size_t sample_rate = simpleaudio_get_rate(sa_out);
+    size_t bit_nsamples = sample_rate / data_rate + 0.5f;
+
+    tx_sa_out = sa_out;
+    tx_bfsk_mark_f = bfsk_mark_f;
+    tx_bit_nsamples = bit_nsamples;
+    if ( tx_interactive )
+	tx_flush_nsamples = sample_rate/2;
+    else
+	tx_flush_nsamples = 0;
+
+    tx_transmitting = 0;
+
+    int end_of_file = 0;
+    unsigned char buf;
+    int n_read;
+
+    while ( !end_of_file )
+    {
+	n_read = read(fileno(stdin), &buf, sizeof(buf));
+	if( n_read <= 0 )
+	{
+	    end_of_file = 1;
+	    continue;
+	}
+
+	unsigned int nwords;
+	unsigned int bits[2];
+	unsigned int j;
+	nwords = encode(bits, buf);
+
+	if ( !tx_transmitting )
+	{
+	    tx_transmitting = 1;
+            for ( j=0; j<tx_leader_bits_len; j++ )
+                simpleaudio_tone(sa_out, invert_start_stop ? bfsk_space_f : bfsk_mark_f, bit_nsamples);
+	}
+	if ( tx_transmitting < 2)
+	{
+	    tx_transmitting = 2;
+	    for ( j=0; j<bfsk_do_tx_sync_bytes; j++ )
+		fsk_transmit_frame(sa_out, bfsk_sync_byte, n_data_bits,
+			bit_nsamples, bfsk_mark_f, bfsk_space_f,
+			n_startbits, n_stopbits, invert_start_stop, 0);
+	}
+
+	for ( j=0; j<nwords; j++ )
+	    fsk_transmit_frame(sa_out, bits[j], n_data_bits,
+			bit_nsamples, bfsk_mark_f, bfsk_space_f,
+			n_startbits, n_stopbits, invert_start_stop, bfsk_msb_first);
     }
+
     if ( !tx_transmitting )
 	return;
 
     tx_stop_transmit_sighandler(0);
 }
-
+#endif
 
 static void
 report_no_carrier( fsk_plan *fskp,
@@ -992,7 +1090,11 @@ main( int argc, char*argv[] )
 	if ( ! sa_out )
 	    return 1;
 
+#ifdef _WIN32
+	fsk_transmit_stdin_windows(sa_out, tx_interactive,
+#else
 	fsk_transmit_stdin(sa_out, tx_interactive,
+#endif
 				bfsk_data_rate,
 				bfsk_mark_f, bfsk_space_f,
 				bfsk_n_data_bits,

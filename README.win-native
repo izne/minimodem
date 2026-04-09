@@ -1,0 +1,86 @@
+# minimodem-gui: Windows Native Port
+
+This repository contains a Windows native port of `minimodem`. This documentation focuses specifically on the requirements and implementation details for the Windows build and its audio abstraction wrapper.
+
+## Overview
+
+The Windows port provides a native executable (`minimodem.exe`) by utilizing a custom audio backend dispatcher (`simpleaudio.c`) that wraps cross-platform audio libraries, specifically targeting `libsndfile` for file I/O and potentially other Windows-compatible backends.
+
+## Prerequisites
+
+### Dependencies
+
+The following libraries must be present on the system and accessible via the `PATH` or located in the same directory as the executable:
+
+| Library | Expected Path (Example) | Required DLL |
+|---------|-------------------------|---------------|
+| **libsndfile** | `Z:\libsndfile-1.2.2-win64` | `libsndfile-1.dll` |
+| **fftw3** | `Z:\fftw3-win` | `libfftw3f-3.dll` |
+
+### Configuration
+
+The build requires a specifically configured `src/config.h` file. For the Windows native port, ensure the following macros are defined:
+
+```c
+#define USE_SNDFILE 1
+#define USE_ALSA 0
+#define USE_PULSEAUDIO 0
+#define USE_SNDIO 0
+#define USE_BENCHMARKS 0
+#define VERSION "0.24-windows"
+```
+
+## Build Instructions
+
+### Using Dev-C++ (Recommended for IDE users)
+
+1. Open the project using the `minimodem.dev` project file located on the mapped drive (`Z:`).
+2. **Warning**: Do not edit `Makefile.win` directly; the IDE will overwrite it on save.
+3. Compile the project within the IDE.
+4. The resulting `minimodem.exe` will be generated in the project output directory.
+
+### Using Make
+
+If a compatible `make` environment is available:
+
+```bash
+make -f Makefile
+```
+
+**Note**: Do not use `Makefile.win` with `make`, as it is managed by the Dev-C++ IDE.
+
+## Windows Audio Wrapper Implementation
+
+The port utilizes a `simpleaudio` abstraction layer to manage different audio backends.
+
+### Backend Dispatcher (`src/simpleaudio.c`)
+
+The `simpleaudio_open_stream` function acts as a factory to initialize the appropriate backend based on configuration and requested mode:
+
+- **`SA_BACKEND_FILE`**: Uses `simpleaudio-sndfile.c` (via `libsndfile`) for reading/writing audio files.
+- **`SA_BACKEND_SYSDEFAULT`**: In the Windows port, this is intended to map to a native Windows audio backend (e.g., via WASAPI or similar, though implementation details depend on the specific `simpleaudio` backend compiled).
+
+### Key Files
+
+- `src/simpleaudio.c`: Core dispatcher for audio backend selection.
+- `src/simpleaudio-sndfile.c`: Implementation for file-based audio I/O.
+- `src/minimodem.c`: Main entry point for the application.
+
+## Known Windows Limitations
+
+- **Signal Handling**: `SIGALRM` is not available on Windows. This currently prevents the implementation of TX (transmit) timeouts, which may cause the application to hang if no data is provided during transmission.
+- **Header Compatibility**: Some system headers (e.g., `<sys/time.h>`, `<sys/select.h>`) require `_WIN32` guards to ensure compatibility with the Windows environment.
+
+## Verification
+
+After building, test the port:
+
+```cmd
+REM Test TX
+echo "test123" | minimodem.exe --tx -f test.wav 1200
+
+REM Test RX
+minimodem.exe --rx -f test.wav 1200
+```
+
+You should see the transmitted text received correctly.

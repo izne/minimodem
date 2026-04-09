@@ -32,6 +32,10 @@
 # define USE_SNDIO 1
 #endif
 
+#ifndef USE_SNDFILE
+# define USE_SNDFILE 1
+#endif
+
 simpleaudio *
 simpleaudio_open_stream(
 		sa_backend_t	sa_backend,

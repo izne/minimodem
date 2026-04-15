@@ -151,7 +151,6 @@ static void fsk_transmit_stdin(
 	tx_flush_nsamples = 0;
 
     // one-shot
-#ifndef _WIN32
     struct itimerval itv = {
 	{0, 0},						// it_interval
 	{0, 1000000/(float)(data_rate+data_rate*0.03f)}	// it_value
@@ -161,18 +160,15 @@ static void fsk_transmit_stdin(
 	{0, 0},						// it_interval
 	{0, 0}						// it_value
     };
-#endif
 
-    // Set up for select() should we need it
-#ifndef _WIN32
-
+    // arbitrary chosen timeout value: 1/25 of a second
     unsigned int idle_carrier_usec = (1000000/25);
-    int block_input = tx_interactive && !txcarrier;
 
-	// arbitrary chosen timeout value: 1/25 of a second
+    int block_input = tx_interactive && !txcarrier;
     if ( block_input )
 	signal(SIGALRM, tx_stop_transmit_sighandler);
-	
+
+    // Set up for select() should we need it
     int fd = fileno(stdin);
     fd_set fdset;
 
@@ -188,29 +184,32 @@ static void fsk_transmit_stdin(
         struct timeval tv_idletimeout = { 0, 0 };
 
 	if ( !tx_interactive ) {
+	    // When stdin blocks we "emit idle tone", for a duration of
+	    // idle_carrier_usec.  If !tx_interactive (i.e. writing to an
+	    // audio file) make the select timeout the same duration.
 	    tv_idletimeout.tv_usec = idle_carrier_usec;
 	}
 
         if( block_input || select(fd+1, &fdset, NULL, NULL, &tv_idletimeout) )
         {
 	    n_read = read(fd, &buf, sizeof(buf));
-	    if( n_read <= 0 )
+	    if( n_read <= 0 ) //Includes EOF (0) and errors (-1)
 	    {
 		end_of_file = 1;
-		continue;
+		continue;     //Do nothing else
 	    }
             idle = 0;
         }
 	else
 	    idle = 1;
 
-#ifndef _WIN32
+	// Cause any running timer to immediately trigger
 	if ( block_input )
 	    setitimer(ITIMER_REAL, &itv_zero, NULL);
-#endif
 
 	if( !idle )
 	{
+	    // fprintf(stderr, "<c=%d>", c);
 	    unsigned int nwords;
 	    unsigned int bits[2];
 	    unsigned int j;
@@ -219,18 +218,21 @@ static void fsk_transmit_stdin(
 	    if ( !tx_transmitting )
 	    {
 	        tx_transmitting = 1;
+                /* emit leader tone (mark) */
                 for ( j=0; j<tx_leader_bits_len; j++ )
                     simpleaudio_tone(sa_out, invert_start_stop ? bfsk_space_f : bfsk_mark_f, bit_nsamples);
 	    }
 	    if ( tx_transmitting < 2)
 	    {
 		tx_transmitting = 2;
+		/* emit "preamble" of sync bytes */
 		for ( j=0; j<bfsk_do_tx_sync_bytes; j++ )
 		    fsk_transmit_frame(sa_out, bfsk_sync_byte, n_data_bits,
 			    bit_nsamples, bfsk_mark_f, bfsk_space_f,
 			    bfsk_nstartbits, bfsk_nstopbits, invert_start_stop, 0);
 	    }
 
+	    /* emit data bits */
 	    for ( j=0; j<nwords; j++ )
 		fsk_transmit_frame(sa_out, bits[j], n_data_bits,
 			    bit_nsamples, bfsk_mark_f, bfsk_space_f,
@@ -239,29 +241,21 @@ static void fsk_transmit_stdin(
         else
         {
 	    tx_transmitting = 1;
-            simpleaudio_tone(sa_out,
+            /* emit idle tone (mark) */
+	    simpleaudio_tone(sa_out,
 		    invert_start_stop ? bfsk_space_f : bfsk_mark_f,
 		    idle_carrier_usec * sample_rate / 1000000);
 	}
 
 	if ( block_input )
-	{
-#ifndef _WIN32
 	    setitimer(ITIMER_REAL, &itv, NULL);
-#endif
-	}
-#ifndef _WIN32
-        if ( block_input ) {
-	    setitimer(ITIMER_REAL, &itv_zero, NULL);
-	    signal(SIGALRM, SIG_DFL);
-        }
-#endif
-        if ( !tx_transmitting )
-	    return;
-
-        tx_stop_transmit_sighandler(0);
     }
-#endif
+    if ( block_input ) {
+	setitimer(ITIMER_REAL, &itv_zero, NULL);
+	signal(SIGALRM, SIG_DFL);
+    }
+    if ( !tx_transmitting )
+	return;
 
     tx_stop_transmit_sighandler(0);
 }

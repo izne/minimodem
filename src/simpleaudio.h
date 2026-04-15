@@ -22,6 +22,13 @@
 
 #include <sys/types.h>
 
+#ifndef _WIN32
+#include <strings.h>
+#else
+#include <string.h>
+#define bzero(b, len) memset(b, 0, len)
+#endif
+
 struct simpleaudio;
 typedef struct simpleaudio simpleaudio;
 

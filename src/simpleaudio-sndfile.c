@@ -43,7 +43,7 @@ static ssize_t
 sa_sndfile_read( simpleaudio *sa, void *buf, size_t nframes )
 {
     SNDFILE *s = (SNDFILE *)sa->backend_handle;
-    int n;
+    int n = 0;
     switch ( sa->format ) {
 	case SA_SAMPLE_FORMAT_FLOAT:
 		n = sf_readf_float(s, buf, nframes);
@@ -79,7 +79,7 @@ sa_sndfile_write( simpleaudio *sa, void *buf, size_t nframes )
 {
     // fprintf(stderr, "sf_write: nframes=%ld\n", nframes);
     SNDFILE *s = (SNDFILE *)sa->backend_handle;
-    int n;
+    int n = 0;
     switch ( sa->format ) {
 	case SA_SAMPLE_FORMAT_FLOAT:
 		n = sf_writef_float(s, buf, nframes);
@@ -167,7 +167,7 @@ sa_sndfile_open_stream(
 {
     const char *path = stream_name;
 
-    int sf_format;
+    int sf_format = 0;
     switch ( sa->format ) {
 	case SA_SAMPLE_FORMAT_FLOAT:
 		sf_format = SF_FORMAT_FLOAT;

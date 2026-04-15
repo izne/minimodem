@@ -23,13 +23,6 @@
 #include <assert.h>
 #include <stdio.h>
 
-#ifndef _WIN32
-#include <strings.h>
-#else
-#include <string.h>
-#define bzero(b, len) memset(b, 0, len)
-#endif
-
 #include "simpleaudio.h"
 
 

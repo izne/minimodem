@@ -48,7 +48,7 @@ uic_message uic_train_to_ground_messages[] = {
 const char * uic_message_meaning(unsigned int code,
 	unsigned int type)
 {
-	uic_message * messages;
+	uic_message * messages = NULL;
 	if (type == UIC_TYPE_GROUNDTRAIN) {
 		messages = uic_ground_to_train_messages;
 	} else if (type == UIC_TYPE_TRAINGROUND) {
@@ -57,6 +57,7 @@ const char * uic_message_meaning(unsigned int code,
 		assert(0);
 	}
 
+	
 	while (messages->code != -1) {
 		if (messages->code == code) {
 			return messages->meaning;

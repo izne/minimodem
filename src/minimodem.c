@@ -43,15 +43,10 @@
 #else
 #include <windows.h>
 #include <mmsystem.h>
+#include <io.h>
 
 #define read(fd, buf, n) _read(fd, buf, n)
 #define write(fd, buf, n) _write(fd, buf, n)
-#endif
-
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#else
-#define VERSION "unknown"
 #endif
 
 #include "simpleaudio.h"
@@ -126,6 +121,7 @@ static void fsk_transmit_frame(
 			bit_nsamples * bfsk_nstopbits);		// stop
 }
 
+#ifndef _WIN32
 static void fsk_transmit_stdin(
 	simpleaudio *sa_out,
 	int tx_interactive,
@@ -167,17 +163,16 @@ static void fsk_transmit_stdin(
     };
 #endif
 
-    // arbitrary chosen timeout value: 1/25 of a second
-    unsigned int idle_carrier_usec = (1000000/25);
-
-    int block_input = tx_interactive && !txcarrier;
-#ifndef _WIN32
-    if ( block_input )
-	signal(SIGALRM, tx_stop_transmit_sighandler);
-#endif
-
     // Set up for select() should we need it
 #ifndef _WIN32
+
+    unsigned int idle_carrier_usec = (1000000/25);
+    int block_input = tx_interactive && !txcarrier;
+
+	// arbitrary chosen timeout value: 1/25 of a second
+    if ( block_input )
+	signal(SIGALRM, tx_stop_transmit_sighandler);
+	
     int fd = fileno(stdin);
     fd_set fdset;
 
@@ -270,6 +265,7 @@ static void fsk_transmit_stdin(
 
     tx_stop_transmit_sighandler(0);
 }
+#endif
 
 #ifdef _WIN32
 static void
@@ -481,7 +477,8 @@ version()
     "License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.\n"
     "This is free software: you are free to change and redistribute it.\n"
     "There is NO WARRANTY, to the extent permitted by law.\n\n"
-    "Written by Kamal Mostafa <kamal@whence.com>.\n",
+    "Written by Kamal Mostafa <kamal@whence.com>.\n"
+	"Native Windows Port (C) 2026 Dimitar Angelov <info@DimitarAngelov.com>\n",
 	VERSION);
 }
 

@@ -27,6 +27,7 @@
 #include <ctype.h>
 #include <assert.h>
 
+#include "simpleaudio.h"
 #include "fsk.h"
 
 
